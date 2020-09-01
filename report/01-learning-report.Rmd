@@ -1,0 +1,423 @@
+---
+title: "Learning Report Analysis Outputs"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+knitr::opts_knit$set(root.dir = here::here())
+```
+
+```{r load-packages}
+pacman::p_load(
+  "tidyverse", 
+  "lubridate", 
+  "glue",
+  "nycflights13"
+)
+```
+
+
+
+### Load data
+
+We will use these data for demonstrations of dealing with categorical and boolean(aka logical) variables:
+
+```{r load-data}
+
+set.seed(489)
+
+dat <- read_rds("data/tables-extract.rds") %>% 
+  mutate(
+    id = row_number(), 
+    cohort = c("Cohort 1", "Cohort 2") %>% sample(n(), replace = TRUE)
+  )
+dat %>% skimr::skim()
+```
+
+For numeric variables, we'll use the 'flights' dataset.
+
+```{r load-data-2}
+
+flights <- nycflights13::flights
+
+```
+
+Let's take a quick look at the data before we begin: 
+
+```{r glimpse}
+
+glimpse(dat)
+
+
+glimpse(flights)
+
+```
+
+## Summarize numeric variables
+
+### Summarize a single numeric variable
+
+```{r numeric-single}
+
+flights %>% 
+  select(dep_delay) %>%  # select our variable of interest
+  
+  # "compute the following summary statistics"
+  # syntax: summary_stat_name = function(variable_name)
+  # if there are missing variables, summary statistics like mean return an error. Specify na.rm =TRUE 
+  # within the function to ignore missing variables, or filter(!is.na(variable)) to remove them from the 
+  # data prior to summarizing
+  
+  summarize( 
+    mean_dep_delay = mean(dep_delay, na.rm = TRUE),
+    median_dep_delay = median(dep_delay, na.rm = TRUE), 
+    min_dep_delay = min(dep_delay, na.rm=TRUE),
+    max_dep_delay = max(dep_delay, na.rm=TRUE),
+    range_dep_delay = max_dep_delay - min_dep_delay
+  ) %>% 
+  knitr::kable() # print as a table
+
+```
+
+
+### Summarize multiple numeric variables 
+
+```{r numeric-mult}
+
+flights %>% 
+  select(dep_delay, arr_delay) %>%  # select our variables of interest
+  
+  # next, we need to make our data 'long' - we want a column with only values, and another column that
+  # tells us which variable that value is associated with
+  
+  pivot_longer(
+    cols = everything(), # pivot all of the variables we have selected
+    names_to = "variable", # naming our new column of variable names
+    values_to = "value"   # naming our new column of values
+    ) %>%
+  
+  group_by(variable) %>% # compute statistics separately for each variable
+  
+  filter(!is.na(value)) %>%  # remove all rows with missing values
+  
+  summarize( 
+    mean = mean(value),
+    median = median(value), 
+    min = min(value), 
+    max = max(value),
+    range = max-min
+  ) %>% 
+  
+  knitr::kable()
+ 
+
+
+```
+
+
+### Summarize a single numeric variable by a categorical variable
+
+```{r numeric-single-grouped}
+
+flights %>% 
+  select(dep_delay, origin) %>%  # select our variables of interest
+  
+  group_by(origin) %>%  # group by our categorical variable
+
+  summarize( 
+    mean_dep_delay = mean(dep_delay, na.rm = TRUE),
+    median_dep_delay = median(dep_delay, na.rm = TRUE), 
+    min_dep_delay = min(dep_delay, na.rm=TRUE),
+    max_dep_delay = max(dep_delay, na.rm=TRUE),
+    range_dep_delay = max_dep_delay - min_dep_delay
+  ) %>% 
+  knitr::kable()
+
+
+```
+
+### Summarize multiple numeric variables by a categorical variable
+
+
+```{r numeric-multi-grouped}
+
+flights %>% 
+  select(origin, dep_delay, arr_delay) %>%  # select our variables of interest
+  
+  # next, we need to make our data 'long' - we want a column with only values, and another column that
+  # tells us which variable that value is associated with
+  
+  pivot_longer(
+    cols = c(dep_delay, arr_delay), # pivot only our numeric variables
+    names_to = "variable", # naming our new column of variable names
+    values_to = "value"   # naming our new column of values
+    ) %>%
+  
+  group_by(origin, variable) %>% # compute statistics separately for each variable, and for each category
+  
+  filter(!is.na(value)) %>%  # remove all rows with missing values
+  
+  summarize( 
+    mean = mean(value),
+    median = median(value), 
+    min = min(value), 
+    max = max(value),
+    range = max-min
+  ) %>% 
+  
+  knitr::kable()
+
+
+
+```
+
+
+## Summarizing Boolean Variables
+
+### Summarize a single boolean value
+
+```{r summary-boolean-one}
+
+# Summarize the racialized variable
+tab_racialized <- dat %>% 
+  
+  filter(!is.na(demo_racialized)) %>%  # remove missing values in our variable of interest
+  
+  # Summarize the following values
+  summarize(
+    N = n(), # the sample size
+    n = sum(demo_racialized), # the number of TRUEs
+    p = mean(demo_racialized) # the proportion of TRUEs
+  ) %>% 
+  
+  mutate(
+    pct = scales::percent(p, accuracy = 1), # print percentages
+    pct_n = glue("{pct} ({n}/{N})") # use glue to finalize values
+  )
+
+tab_racialized %>% 
+  
+  # select relevant outputs
+  select(pct_n) %>%  
+  
+  # convert table to markdown
+  knitr::kable()
+```
+
+### Summarize a number of boolean variables
+
+```{r summary-boolean-many}
+# Summarize all boolean demographic variables in the data
+tab_demo_bool <- dat %>% 
+  
+  # pivot boolean variables to long format
+  pivot_longer(
+    cols = c(matches("demo")), 
+    names_to = "variable", 
+    values_to = "value"
+  ) %>% 
+  
+  # filter out rows with na values
+  filter(!is.na(value)) %>% 
+  
+  # group by variable name
+  group_by(variable) %>% 
+  
+  # Summarize the following values
+  summarize(
+    N = n(), # the sample size
+    n = sum(value), # the number of TRUEs
+    p = mean(value) # the proportion of TRUEs
+  ) %>% 
+  
+  mutate(
+    pct = scales::percent(p, accuracy = 1), # print percentages
+    pct_n = glue("{pct} ({n}/{N})") # use glue to finalize values
+  )
+
+tab_demo_bool %>% 
+  
+  # select relevant outputs
+  select(variable, pct_n) %>% 
+  
+  # convert table to markdown
+  knitr::kable()
+```
+
+### Summarize a number of boolean variables by a categorical variable
+
+```{r summary-boolean-many-by-cohort}
+tab_demo_by_cohort <- dat %>% 
+  
+  pivot_longer(
+    cols = c(matches("demo")), 
+    names_to = "variable", 
+    values_to = "value"
+  ) %>% 
+  
+  filter(!is.na(value)) %>% # remove missing values for all variables 
+  
+  # we will calculate each summary stat for each cohort/variable combination
+  
+  group_by(cohort, variable) %>% 
+  
+  # Summarize the following values
+  summarize(
+    N = n(), # the sample size
+    n = sum(value), # the number of TRUEs
+    p = mean(value) # the proportion of TRUEs
+  ) %>% 
+  
+  mutate(
+    pct = scales::percent(p, accuracy = 1), # print percentages
+    pct_n = glue("{pct} ({n}/{N})") # use glue to finalize values
+  )
+
+tab_demo_by_cohort %>% 
+  
+  # select relevant outputs
+  select(variable, cohort, pct_n) %>% 
+  
+  # pivot crosstab for readability
+  pivot_wider(
+    names_from = cohort, 
+    values_from = pct_n
+  ) %>% 
+  
+  # convert table to markdown
+  knitr::kable()
+```
+
+### Add a "Total" column
+
+```{r summary-boolean-many-by-cohort-total}
+tab_demo_by_cohort_with_total <- dat %>% 
+  
+  # we create a copy of the dataset where cohort is "Total", then bind this dataset to our original data
+  # There are 2 rows for each observation now: one with the original cohort, and where cohort = "Total"
+  
+  bind_rows(dat %>% mutate(cohort = "Total")) %>%  
+  
+  pivot_longer(
+    cols = c(matches("demo")), 
+    names_to = "variable", 
+    values_to = "value"
+  ) %>% 
+  
+  filter(!is.na(value)) %>% 
+  
+  group_by(cohort, variable) %>% 
+  
+  # Summarize the following values
+  summarize(
+    N = n(), # the sample size
+    n = sum(value), # the number of TRUEs
+    p = mean(value) # the proportion of TRUEs
+  ) %>% 
+  
+  mutate(
+    pct = scales::percent(p, accuracy = 1), # print percentages
+    pct_n = glue("{pct} ({n}/{N})") # use glue to finalize values
+  )
+
+tab_demo_by_cohort_with_total %>% 
+  
+  # select relevant outputs
+  select(variable, cohort, pct_n) %>% 
+  
+  pivot_wider(
+    names_from = cohort, 
+    values_from = pct_n
+  ) %>% 
+  
+  # convert table to markdown
+  knitr::kable()
+```
+
+### Summarize a categorical variable
+
+```{r summary-categorical-one}
+tab_educ <- dat %>% 
+  
+  filter(!is.na(educ_highest)) %>% 
+  
+  group_by(educ_highest, .drop = FALSE) %>% 
+  
+  summarize(
+    n = n()
+  ) %>% 
+  
+  mutate(
+    N = sum(n), 
+    p = n / N, 
+    pct = scales::percent(p, accuracy = 1), 
+    pct_n = glue("{pct} ({n}/{N})")
+  )
+
+tab_educ %>% 
+  select(
+    educ_highest, 
+    pct_n
+  ) %>% 
+  
+  knitr::kable()
+```
+
+### Summarize a categorical variable by another categorical variable
+
+```{r summary-categorical-two}
+tab_educ_by_cohort <- dat %>% 
+  
+  bind_rows(dat %>% mutate(cohort = "Total")) %>% 
+  
+  filter(!is.na(educ_highest)) %>% 
+  
+  group_by(
+    cohort, educ_highest, .drop = FALSE
+  ) %>% 
+  
+  summarize(
+    n = n()
+  ) %>% 
+  
+  group_by(
+    cohort
+  ) %>% 
+  
+  mutate(
+    N = sum(n), 
+    p = n / N, 
+    pct = scales::percent(p, accuracy = 1), 
+    pct_n = glue::glue("{pct} ({n}/{N})")
+  )
+
+tab_educ_by_cohort %>% 
+  select(
+    cohort, educ_highest, pct_n
+  ) %>% 
+  
+  pivot_wider(
+    names_from = cohort, 
+    values_from = pct_n
+  ) %>% 
+  
+  knitr::kable()
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
